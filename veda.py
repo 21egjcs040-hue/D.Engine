@@ -12,10 +12,58 @@ from docx import Document
 from docx.shared import Inches, Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
-from docx.oxml import OxmlElement
-from docx.oxml.ns import qn
 
 # --- HELPER FUNCTIONS ---
+
+
+
+
+
+def resize_logo_exact(image_path, target_width_in, target_height_in):
+    DPI = 96  # Word safe DPI
+
+    target_w_px = int(target_width_in * DPI)
+    target_h_px = int(target_height_in * DPI)
+
+    img = Image.open(image_path)
+    img = img.convert("RGBA")
+    img = img.resize((target_w_px, target_h_px), Image.Resampling.LANCZOS)
+
+    bio = io.BytesIO()
+    img.save(bio, format="PNG")
+    bio.seek(0)
+    return bio
+
+
+
+
+
+
+def process_logo(img_file, max_height_inches=0.55, max_width_inches=1.5):
+    img = Image.open(img_file)
+    width, height = img.size
+
+    # Pillow 10+ compatible resampling
+    try:
+        resample_method = Image.Resampling.LANCZOS
+    except AttributeError:
+        resample_method = Image.LANCZOS  # Image.ANTIALIAS ab remove ho gaya
+
+
+    # ratio calculate karo
+    ratio = min(max_width_inches / (width/96), max_height_inches / (height/96), 1)
+    new_width = int(width * ratio)
+    new_height = int(height * ratio)
+
+    img = img.resize((new_width, new_height), resample=resample_method)
+    buf = io.BytesIO()
+    img.save(buf, format='PNG')
+    buf.seek(0)
+    return buf
+
+
+
+
 
 def add_page_border(doc):
     from docx.oxml import OxmlElement
@@ -82,8 +130,11 @@ def add_custom_footer(doc):
     p.clear() 
     
     # --- LEFT SIDE: Company Name ---
-    run_left = p.add_run("Kamal Cogent Energy")
-    run_left.font.size = Pt(10)
+    run_left = p.add_run(
+    "1. Should match the latest sanctioned plan\n"
+    "2. As per IGBC eligibility condition for IGBC GAH"
+    )
+    run_left.font.size = Pt(7)
     run_left.font.bold = True
     run_left.font.color.rgb = RGBColor(0, 0, 0)
 
@@ -126,33 +177,117 @@ def make_row_cant_split(row):
     trPr.append(cantSplit)
 
 
-def process_image_for_word(img_file):
+
+
+
+
+# def process_image_for_word(img_file, target_size=(700, 450)): # Height को 600 से घटाकर 450 किया
+#     try:
+#         img = Image.open(img_file)
+#         img = img.convert("RGB")
+        
+#         # एस्पेक्ट रेशियो बनाए रखते हुए फोटो को छोटा करें
+#         img.thumbnail(target_size, Image.Resampling.LANCZOS)
+        
+#         # एक फिक्स साइज का सफेद बॉक्स बनाएँ (ताकि हाइट/विड्थ एक जैसी दिखे)
+#         new_img = Image.new("RGB", target_size, (255, 255, 255))
+        
+#         # फोटो को बीच में रखें
+#         upper_left = (
+#             (target_size[0] - img.size[0]) // 2,
+#             (target_size[1] - img.size[1]) // 2
+#         )
+#         new_img.paste(img, upper_left)
+        
+#         buf = io.BytesIO()
+#         new_img.save(buf, format='PNG')
+#         buf.seek(0)
+#         return buf
+#     except Exception as e:
+#         return None
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# def process_image_for_word(img_file, max_height_inches=2.0):
+#     try:
+#         img = Image.open(img_file)
+#         # ... (aapka existing conversion code) ...
+        
+#         # Buffer mein save karne se pehle aspect ratio maintain rakhte hue resize check
+#         buf = io.BytesIO()
+#         img.save(buf, format='PNG')
+#         buf.seek(0)
+#         return buf
+#     except Exception as e:
+#         return None
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def process_image_for_word(img_file, w_inch, h_inch):
     try:
         img = Image.open(img_file)
+        img = img.convert("RGB")
         
-        # --- YE WALA HISSA CHANGE KIYA HAI ---
-        # Agar image 'P' mode (palette) mein hai aur transparency hai, toh RGBA karein
-        if img.mode == 'P':
-            img = img.convert('RGBA')
-            
-        # Ab RGBA ya kisi bhi transparency wali image ko white background ke saath RGB mein badlein
-        if img.mode in ('RGBA', 'LA'):
-            # Ek nayi white background image banayein
-            background = Image.new("RGB", img.size, (255, 255, 255))
-            # Original image ko uske upar paste karein (alpha channel use karke)
-            background.paste(img, mask=img.split()[3] if img.mode == 'RGBA' else img.split()[1])
-            img = background
-        elif img.mode != 'RGB':
-            img = img.convert('RGB')
-        # --------------------------------------
-
+        # Word के लिए Target Pixel Size (96 DPI के हिसाब से)
+        target_w = int(w_inch * 96)
+        target_h = int(h_inch * 96)
+        
+        # फोटो को बिना स्ट्रेच किए फ्रेम में फिट करें
+        img.thumbnail((target_w, target_h), Image.Resampling.LANCZOS)
+        
+        # डायनेमिक कैनवास: फोटो के नए साइज के बराबर ही बॉक्स बनाएं
+        # इससे दाएं-बाएं की एक्स्ट्रा खाली जगह खत्म हो जाएगी
+        new_img = Image.new("RGB", img.size, (255, 255, 255))
+        new_img.paste(img, (0, 0))
+        
         buf = io.BytesIO()
-        img.save(buf, format='JPEG', quality=95)
+        new_img.save(buf, format='PNG')
         buf.seek(0)
         return buf
     except Exception as e:
         return None
-    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 def inject_custom_logo(logo_filename):
     if os.path.exists(logo_filename):
         try:
@@ -348,51 +483,99 @@ if uploaded_files:
                         section.left_margin = Inches(0.5)
                         section.right_margin = Inches(0.5)
                         section.top_margin = Inches(0.5) 
+                        # ✅ Header ko page ke bilkul upar lao
+                        section.header_distance = Inches(0.3)
+
 
                         # --- HEADER LOGIC ---
+
                         header = section.header
+                        header.is_linked_to_previous = False
                         for paragraph in header.paragraphs:
                             p = paragraph._element
                             p.getparent().remove(p)
-                            
-                        # Table: [Left Logo | Center Text | Right Logo]
+
+                        # Table ki total width 7.5 inches rakhein (A4 standard with 0.5 margins)
                         htable = header.add_table(rows=1, cols=3, width=Inches(7.5))
-                        htable.autofit = False
-                        htable.columns[0].width = Inches(1.5) 
-                        htable.columns[1].width = Inches(4.5) 
-                        htable.columns[2].width = Inches(1.5) 
-                        
-                        # 1. Left Logo
+
+                        htable.allow_autofit = False # Ye line logo ko bahar jaane se rokegi
+
+                        # Columns ki width ko strictly fix karein
+                        htable.columns[0].width = Inches(1.5) # Left Logo space
+                        htable.columns[1].width = Inches(4.5) # Center Text space
+                        htable.columns[2].width = Inches(1.5) # Right Logo space
+
+                        from docx.enum.table import WD_ROW_HEIGHT_RULE
+
+                        htable.rows[0].height = Inches(0.8)  # Row height fix
+                        htable.rows[0].height_rule = WD_ROW_HEIGHT_RULE.EXACTLY
+
+
+                        def set_cell_padding(cell, top=100, start=100, bottom=100, end=100):
+                            tc = cell._tc
+                            tcPr = tc.get_or_add_tcPr()
+                            tcMar = OxmlElement('w:tcMar')
+                            for side, val in [('top', top), ('left', start), ('bottom', bottom), ('right', end)]:
+                                node = OxmlElement(f'w:{side}')
+                                node.set(qn('w:w'), str(val))
+                                node.set(qn('w:type'), 'dxa')
+                                tcMar.append(node)
+                            tcPr.append(tcMar)
+
+                        # Sabhi cells mein thoda padding add karein (approx 0.05-0.1 inch)
+                        for i in range(3):
+                            set_cell_padding(htable.cell(0, i), top=150, bottom=150, start=100, end=100)
+                            htable.cell(0, i).vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+                            # Paragraph ki extra spacing remove karein
+                            p = htable.cell(0, i).paragraphs[0]
+                            p.paragraph_format.space_before = Pt(0)
+                            p.paragraph_format.space_after = Pt(0)
+                            p.paragraph_format.line_spacing = 1.0
+
+                        # 1. Left Logo (Height constrain karein)
                         if logo_left:
                             cell = htable.cell(0, 0)
                             p = cell.paragraphs[0]
                             p.alignment = WD_ALIGN_PARAGRAPH.LEFT
                             run = p.add_run()
-                            buf = process_image_for_word(logo_left)
-                            if buf: run.add_picture(buf, height=Inches(0.6))
-                        
-                        # 2. Center Text (Flexible)
+                            p.paragraph_format.space_before = Pt(6)
+                            p.paragraph_format.space_after = Pt(6)
+                            img = resize_logo_exact(logo_left, 0.5, 0.5)
+                            run.add_picture(img)
+
+
+                            
+
+                        # 2. Center Text
                         cell = htable.cell(0, 1)
                         p = cell.paragraphs[0]
                         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                        
                         if header_center_text:
                             run = p.add_run(header_center_text)
                             run.bold = True
-                            run.font.size = Pt(18)
-                            run.font.color.rgb = RGBColor(0, 0, 0)
-                        else:
-                            p.text = "" # Blank if user leaves empty
-                        
-                        # 3. Right Logo
+                            run.font.size = Pt(9)
+
+                        # 3. Right Logo (Height constrain karein)
                         if logo_right:
                             cell = htable.cell(0, 2)
                             p = cell.paragraphs[0]
                             p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
                             run = p.add_run()
-                            buf = process_image_for_word(logo_right)
-                            if buf: run.add_picture(buf, height=Inches(0.6))
+                            p.paragraph_format.space_before = Pt(6)
+                            p.paragraph_format.space_after = Pt(6)
 
+                            img = resize_logo_exact(logo_right, 0.5, 0.5)
+                            run.add_picture(img)
+
+
+                            
+
+                            # Header ke baad minimal gap
+                            p_gap = doc.add_paragraph("")
+                            p_gap.paragraph_format.space_before = Pt(0)
+                            p_gap.paragraph_format.space_after = Pt(2)
+
+                            # ✅ REMOVE EXTRA SPACE AFTER HEADER
                     final_header_color = header_color_input.replace('#', '')
 
                     # --- MAIN REPORT TITLE (BODY) ---
@@ -401,6 +584,8 @@ if uploaded_files:
                             # Title ki jagah Heading 1 (level=1) use kar rahe hain jo ki safe hai
                             head = doc.add_heading("", level=1)
                             run = head.add_run(main_body_title)
+                            head.paragraph_format.space_before = Pt(0)
+                            head.paragraph_format.space_after = Pt(4)
                             run.font.size = Pt(18)
                             run.font.color.rgb = RGBColor(0, 0, 0)
                             run.bold = True
@@ -424,18 +609,26 @@ if uploaded_files:
                     info_table.alignment = WD_TABLE_ALIGNMENT.CENTER
                     
                     details = [
-                        ("Project Name", p_name), ("Location", p_loc),
-                        ("Pre-certification", p_precert), ("Area", p_area),
-                        ("Dwelling Units", p_units), ("Affordable Units", p_afford),
+                        ("Project Name", p_name),
+                        ("Registration Number", p_num),   # ✅ YE LINE ADD KARO
+                        ("Location", p_loc),
+                        ("Pre-certification achieved", p_precert),
+                        ("Total built-up area", p_area),
+                        ("Total number of Dwelling Units", p_units),
+                        ("Number of unit (Affordable)", p_afford),
                         ("Date", str(p_date))
                     ]
                     for lab, val in details:
                         row = info_table.add_row()
                         row.cells[0].width = Inches(2.0)
-                        row.cells[1].width = Inches(4.5)
+                        row.cells[1].width = Inches(4.0)
                         set_cell_background(row.cells[0], final_header_color)
                         row.cells[0].text = lab
-                        row.cells[0].paragraphs[0].runs[0].font.bold = True
+                        p = row.cells[0].paragraphs[0]
+                        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        run = p.runs[0]
+                        run.font.bold = True
+                        run.font.size = Pt(9)
                         row.cells[0].paragraphs[0].runs[0].font.color.rgb = RGBColor(0,0,0)
                         row.cells[1].text = val
                         row.cells[1].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -492,12 +685,13 @@ if uploaded_files:
 
                     # --- MAIN TABLE (AUTO-GROUPING) ---
                     grouped_entries = {}
-                    sorted_raw = sorted(entries_data.values(), key=lambda x: x['caption'])
-                    for entry in sorted_raw:
+                    for entry in entries_data.values():
                         key = (entry['caption'], entry['status'])
-                        if key not in grouped_entries: grouped_entries[key] = []
+                        if key not in grouped_entries: 
+                            grouped_entries[key] = []
                         grouped_entries[key].append(entry['img1'])
-                        if entry['sec_imgs']: grouped_entries[key].extend(entry['sec_imgs'])
+                        if entry['sec_imgs']: 
+                            grouped_entries[key].extend(entry['sec_imgs'])
 
                     table = doc.add_table(rows=1, cols=3)
                     table.style = 'Table Grid'
@@ -508,7 +702,7 @@ if uploaded_files:
                     h_cells[1].width = Inches(0.8)
                     h_cells[2].width = Inches(4.5)
                     
-                    col_headers = ['Credit / Caption', 'Status', 'Site Photograph']
+                    col_headers = ['Credit', 'Implementation Status (For e.g.: to be initiated,in progress, Completed)', 'Time stamp Photograph with caption']
                     for i, txt in enumerate(col_headers):
                         h_cells[i].text = txt
                         set_cell_background(h_cells[i], final_header_color)
@@ -519,41 +713,59 @@ if uploaded_files:
                     
                     table.rows[0]._tr.get_or_add_trPr().append(OxmlElement('w:tblHeader'))
 
-                    for (cap, stat), images in grouped_entries.items():
-                        row = table.add_row()
-                        make_row_cant_split(row)
-                        row.cells[0].text = cap
-                        row.cells[1].text = stat
-                        row.cells[0].vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-                        row.cells[1].vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-                        row.cells[0].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-                        row.cells[1].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    for fixed_cap in caption_options:
+                        # Check karein ki is caption ke liye koi entry hai ya nahi
+                        relevant_keys = [k for k in grouped_entries.keys() if k[0] == fixed_cap]
                         
-                        photo_cell = row.cells[2]
-                        photo_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-                        photo_cell.paragraphs[0].clear()
+                        for key in relevant_keys:
+                            cap, stat = key
+                            images = grouped_entries[key]
+                            
+                            # Row create karein
+                            row = table.add_row()
+                            make_row_cant_split(row)
+                            row.cells[0].text = cap
+                            row.cells[1].text = stat
+                            row.cells[0].vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+                            row.cells[1].vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+                            row.cells[0].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+                            row.cells[1].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+                            
+                            photo_cell = row.cells[2]
+                            photo_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+                            photo_cell.paragraphs[0].clear()
                         
-                        n = len(images)
-                        if n == 1: r, c, w = 1, 1, 2.0
-                        elif n == 2: r, c, w = 1, 2, 2.0
-                        elif n <= 4: r, c, w = 2, 2, 2.0
-                        else: c = 3; r = math.ceil(n/3); w = 1.3
-                        
-                        gt = photo_cell.add_table(rows=r, cols=c)
-                        gt.alignment = WD_TABLE_ALIGNMENT.CENTER
-                        
-                        for idx, img_file in enumerate(images):
-                            ri, ci = idx // c, idx % c
-                            if ri < r:
-                                sub_cell = gt.cell(ri, ci)
-                                sub_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-                                p = sub_cell.paragraphs[0]
-                                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                                run = p.add_run()
-                                buf = process_image_for_word(img_file)
-                                if buf:
-                                    run.add_picture(buf, width=Inches(w))
-                                    run.add_text(" ")
+                            n = len(images)
+                            if n == 1: r, c, w, h = 1, 1, 4.0, 2.0
+                            elif n == 2: r, c, w, h = 1, 2, 2.2, 2.0
+                            elif n <= 4: r, c, w, h = 2, 2, 2.0, 2.0
+                            else: c = 2; r = math.ceil(n/2); w, h = 1.8, 2.0
+                            
+                            gt = photo_cell.add_table(rows=r, cols=c)
+                            gt.alignment = WD_TABLE_ALIGNMENT.CENTER
+                            
+                            for idx, img_file in enumerate(images):
+                                ri, ci = idx // c, idx % c
+                                if ri < r:
+                                    sub_cell = gt.cell(ri, ci)
+                                    sub_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+                                    p = sub_cell.paragraphs[0]
+                                    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                                    run = p.add_run()
+                                    buf = process_image_for_word(img_file, w, h)
+                                    if buf:
+                                        run.add_picture(buf, width=Inches(w))
+                                        run.add_text(" ")
+
+
+                    # 4. Custom Captions ke liye (jo list mein nahi hain)
+                    custom_keys = [k for k in grouped_entries.keys() if k[0] not in caption_options]
+                    for key in custom_keys:
+                        cap, stat = key
+                        images = grouped_entries[key]
+
+
+                    
                     add_custom_footer(doc)                
                     add_page_border(doc)
                     bio = io.BytesIO()
