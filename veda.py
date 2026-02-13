@@ -14,11 +14,6 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
 
 # --- HELPER FUNCTIONS ---
-
-
-
-
-
 def resize_logo_exact(image_path, target_width_in, target_height_in):
     DPI = 96  # Word safe DPI
 
@@ -33,11 +28,6 @@ def resize_logo_exact(image_path, target_width_in, target_height_in):
     img.save(bio, format="PNG")
     bio.seek(0)
     return bio
-
-
-
-
-
 
 def process_logo(img_file, max_height_inches=0.55, max_width_inches=1.5):
     img = Image.open(img_file)
@@ -60,9 +50,6 @@ def process_logo(img_file, max_height_inches=0.55, max_width_inches=1.5):
     img.save(buf, format='PNG')
     buf.seek(0)
     return buf
-
-
-
 
 
 def add_page_border(doc):
@@ -178,113 +165,43 @@ def make_row_cant_split(row):
 
 
 
-
-
-
-# def process_image_for_word(img_file, target_size=(700, 450)): # Height को 600 से घटाकर 450 किया
-#     try:
-#         img = Image.open(img_file)
-#         img = img.convert("RGB")
-        
-#         # एस्पेक्ट रेशियो बनाए रखते हुए फोटो को छोटा करें
-#         img.thumbnail(target_size, Image.Resampling.LANCZOS)
-        
-#         # एक फिक्स साइज का सफेद बॉक्स बनाएँ (ताकि हाइट/विड्थ एक जैसी दिखे)
-#         new_img = Image.new("RGB", target_size, (255, 255, 255))
-        
-#         # फोटो को बीच में रखें
-#         upper_left = (
-#             (target_size[0] - img.size[0]) // 2,
-#             (target_size[1] - img.size[1]) // 2
-#         )
-#         new_img.paste(img, upper_left)
-        
-#         buf = io.BytesIO()
-#         new_img.save(buf, format='PNG')
-#         buf.seek(0)
-#         return buf
-#     except Exception as e:
-#         return None
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# def process_image_for_word(img_file, max_height_inches=2.0):
-#     try:
-#         img = Image.open(img_file)
-#         # ... (aapka existing conversion code) ...
-        
-#         # Buffer mein save karne se pehle aspect ratio maintain rakhte hue resize check
-#         buf = io.BytesIO()
-#         img.save(buf, format='PNG')
-#         buf.seek(0)
-#         return buf
-#     except Exception as e:
-#         return None
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def process_image_for_word(img_file, w_inch, h_inch):
+def process_image_for_word(img_file,
+                           land_w=4.25, land_h=2.25,
+                           port_w=3.6, port_h=2.03):
     try:
         img = Image.open(img_file)
         img = img.convert("RGB")
+
+        w_px, h_px = img.size
+        aspect = w_px / h_px
+        DPI = 96
+
+        # 🎯 LANDSCAPE IMAGE
+        if aspect >= 1:
+            max_w_px = int(land_w * DPI)
+            max_h_px = int(land_h * DPI)
+
+            scale = min(max_w_px / w_px, max_h_px / h_px)
         
-        # Word के लिए Target Pixel Size (96 DPI के हिसाब से)
-        target_w = int(w_inch * 96)
-        target_h = int(h_inch * 96)
-        
-        # फोटो को बिना स्ट्रेच किए फ्रेम में फिट करें
-        img.thumbnail((target_w, target_h), Image.Resampling.LANCZOS)
-        
-        # डायनेमिक कैनवास: फोटो के नए साइज के बराबर ही बॉक्स बनाएं
-        # इससे दाएं-बाएं की एक्स्ट्रा खाली जगह खत्म हो जाएगी
-        new_img = Image.new("RGB", img.size, (255, 255, 255))
-        new_img.paste(img, (0, 0))
-        
+        # 🎯 PORTRAIT IMAGE
+        else:
+            max_w_px = int(port_w * DPI)
+            max_h_px = int(port_h * DPI)
+
+            scale = min(max_w_px / w_px, max_h_px / h_px)
+
+        new_w = int(w_px * scale)
+        new_h = int(h_px * scale)
+
+        img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
         buf = io.BytesIO()
-        new_img.save(buf, format='PNG')
+        img.save(buf, format="PNG")
         buf.seek(0)
         return buf
-    except Exception as e:
+
+    except Exception:
         return None
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -713,57 +630,173 @@ if uploaded_files:
                     
                     table.rows[0]._tr.get_or_add_trPr().append(OxmlElement('w:tblHeader'))
 
+                    
+                        
+# --- 1. Fixed Captions (Standard List) ---
+                    # हम पहले 'caption_options' के हिसाब से फोटो लगाएंगे ताकि क्रम (Order) सही रहे
+# --- 1. Fixed Captions (Sync Logic) ---
                     for fixed_cap in caption_options:
-                        # Check karein ki is caption ke liye koi entry hai ya nahi
                         relevant_keys = [k for k in grouped_entries.keys() if k[0] == fixed_cap]
+
+
+
+                            # ⭐ NEW CODE ADD KAREIN (EMPTY CAPTION ROW)
+                        if not relevant_keys:
+                            row = table.add_row()
+                            row.cells[0].text = fixed_cap
+                            row.cells[1].text = ""   # status blank
+                            row.cells[2].text = ""   # photo blank
+
+                            for c in row.cells:
+                                c.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+                                p = c.paragraphs[0]
+                                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                                if p.runs:
+                                    p.runs[0].font.size = Pt(9)
+                                    p.runs[0].font.bold = True
+                            continue
+
+
+
                         
                         for key in relevant_keys:
-                            cap, stat = key
-                            images = grouped_entries[key]
+                            cap_text, stat_text = key
+                            image_list = grouped_entries[key]
                             
-                            # Row create karein
-                            row = table.add_row()
-                            make_row_cant_split(row)
-                            row.cells[0].text = cap
-                            row.cells[1].text = stat
-                            row.cells[0].vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-                            row.cells[1].vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-                            row.cells[0].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-                            row.cells[1].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+                            # फोटो के 2-2 के जोड़े बनाना ताकि कैप्शन साथ रहे
+                            chunk_size = 2
+                            chunks = [image_list[i:i + chunk_size] for i in range(0, len(image_list), chunk_size)]
                             
-                            photo_cell = row.cells[2]
-                            photo_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-                            photo_cell.paragraphs[0].clear()
-                        
-                            n = len(images)
-                            if n == 1: r, c, w, h = 1, 1, 4.0, 2.0
-                            elif n == 2: r, c, w, h = 1, 2, 2.2, 2.0
-                            elif n <= 4: r, c, w, h = 2, 2, 2.0, 2.0
-                            else: c = 2; r = math.ceil(n/2); w, h = 1.8, 2.0
-                            
-                            gt = photo_cell.add_table(rows=r, cols=c)
-                            gt.alignment = WD_TABLE_ALIGNMENT.CENTER
-                            
-                            for idx, img_file in enumerate(images):
-                                ri, ci = idx // c, idx % c
-                                if ri < r:
-                                    sub_cell = gt.cell(ri, ci)
-                                    sub_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-                                    p = sub_cell.paragraphs[0]
-                                    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                                    run = p.add_run()
-                                    buf = process_image_for_word(img_file, w, h)
-                                    if buf:
-                                        run.add_picture(buf, width=Inches(w))
-                                        run.add_text(" ")
+                            cells_to_merge_cap = []
+                            cells_to_merge_stat = []
 
+                            for idx, chunk in enumerate(chunks):
+                                row = table.add_row()
+                                # रो को फटने से रोकना
+                                row._tr.get_or_add_trPr().append(OxmlElement('w:cantSplit'))
+                                
+                                cells_to_merge_cap.append(row.cells[0])
+                                cells_to_merge_stat.append(row.cells[1])
+                                
+                                photo_cell = row.cells[2]
+                                photo_cell.paragraphs[0].clear()
+                                
+                                # अंदर की ग्रिड टेबल
+                                inner_table = photo_cell.add_table(rows=1, cols=len(chunk))
+                                inner_table.allow_autofit = False
+                                inner_table.width = Inches(4.5)
 
-                    # 4. Custom Captions ke liye (jo list mein nahi hain)
+                                for c_idx, img_data in enumerate(chunk):
+                                    cell = inner_table.cell(0, c_idx)
+                                    cell_p = cell.paragraphs[0]
+                                    cell_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                                    
+                                    img_stream = process_image_for_word(img_data, 2.1, 1.8)
+                                    if img_stream:
+                                        run = cell_p.add_run()
+                                        run.add_picture(img_stream, width=Inches(2.1))
+
+                            # कैप्शन और स्टेटस को मर्ज करना (ASLI SOLUTION)
+                            cells_to_merge_cap[0].text = str(cap_text)
+                            cells_to_merge_stat[0].text = str(stat_text)
+
+                            # अलाइनमेंट ठीक करने के लिए (CENTER):
+                            for master_cell in [cells_to_merge_cap[0], cells_to_merge_stat[0]]:
+                                master_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER  # ऊपर-नीचे से बीच में
+                                p = master_cell.paragraphs[0]
+                                p.alignment = WD_ALIGN_PARAGRAPH.CENTER  # दाएं-बाएं से बीच में
+                                if p.runs:
+                                    p.runs[0].font.size = Pt(9)
+                                    p.runs[0].font.bold = True
+
+                            if len(cells_to_merge_cap) > 1:
+                                for i in range(1, len(cells_to_merge_cap)):
+                                    cells_to_merge_cap[0].merge(cells_to_merge_cap[i])
+                                    cells_to_merge_stat[0].merge(cells_to_merge_stat[i])
+
+                            
+
+                            # # --- YEH HISSA ADD KAREIN ---
+                            # # Isse photo wale cells ki horizontal lines hat jayengi
+                            # for i in range(len(cells_to_merge_cap)):
+                            #     # Photo cell (index 2) ko pakdein
+                            #     photo_tc = cells_to_merge_cap[i]._tr.get_children()[2] 
+                            #     tcPr = photo_tc.get_or_add_tcPr()
+                            #     tcBorders = OxmlElement('w:tcBorders')
+                                
+                            #     # Bottom aur Top border ko 'nil' (invisible) karein
+                            #     for border in ['top', 'bottom']:
+                            #         node = OxmlElement(f'w:{border}')
+                            #         node.set(qn('w:val'), 'nil')
+                            #         tcBorders.append(node)
+                            #     tcPr.append(tcBorders)
+
+                            
+
+                            # स्टाइलिंग: टॉप एलाइनमेंट ताकि फोटो नीचे जाने पर भी नाम ऊपर रहे
+                            for master_cell in [cells_to_merge_cap[0], cells_to_merge_stat[0]]:
+                                master_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+                                p = master_cell.paragraphs[0]
+                                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                                if p.runs:
+                                    p.runs[0].font.size = Pt(9)
+                                    p.runs[0].font.bold = True
+
+                    # --- 2. Custom Captions (वही सेम लॉजिक यहाँ भी) ---
                     custom_keys = [k for k in grouped_entries.keys() if k[0] not in caption_options]
                     for key in custom_keys:
-                        cap, stat = key
-                        images = grouped_entries[key]
+                        cap_text, stat_text = key
+                        image_list = grouped_entries[key]
+                        
+                        chunk_size = 2
+                        chunks = [image_list[i:i + chunk_size] for i in range(0, len(image_list), chunk_size)]
+                        
+                        cells_to_merge_cap = []
+                        cells_to_merge_stat = []
 
+                        for idx, chunk in enumerate(chunks):
+                            row = table.add_row()
+                            row._tr.get_or_add_trPr().append(OxmlElement('w:cantSplit'))
+                            cells_to_merge_cap.append(row.cells[0])
+                            cells_to_merge_stat.append(row.cells[1])
+                            
+                            photo_cell = row.cells[2]
+                            photo_cell.paragraphs[0].clear()
+                            inner_table = photo_cell.add_table(rows=1, cols=len(chunk))
+                            inner_table.allow_autofit = False
+                            inner_table.width = Inches(4.5)
+
+                            for c_idx, img_data in enumerate(chunk):
+                                cell = inner_table.cell(0, c_idx)
+                                cell_p = cell.paragraphs[0]
+                                cell_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                                img_stream = process_image_for_word(img_data, 2.1, 1.8)
+                                if img_stream:
+                                    run = cell_p.add_run()
+                                    run.add_picture(img_stream, width=Inches(2.1))
+
+                        cells_to_merge_cap[0].text = str(cap_text)
+                        cells_to_merge_stat[0].text = str(stat_text)
+                        if len(cells_to_merge_cap) > 1:
+                            for i in range(1, len(cells_to_merge_cap)):
+                                cells_to_merge_cap[0].merge(cells_to_merge_cap[i])
+                                cells_to_merge_stat[0].merge(cells_to_merge_stat[i])
+
+                        for master_cell in [cells_to_merge_cap[0], cells_to_merge_stat[0]]:
+                            master_cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+                            p = master_cell.paragraphs[0]
+                            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                            if p.runs:
+                                p.runs[0].font.size = Pt(9)
+                                p.runs[0].font.bold = True
+
+                    # --- FINAL GENERATION ---
+                    add_page_border(doc)
+                    add_custom_footer(doc)
+
+                    target_stream = io.BytesIO()
+                    doc.save(target_stream)
+                    target_stream.seek(0)
 
                     
                     add_custom_footer(doc)                
